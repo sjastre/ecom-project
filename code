@@ -1,0 +1,185 @@
+--Returns list of top 10 most purchased products with number of times purchased
+SELECT description, count(description) AS times_purchased
+FROM online_retail
+GROUP BY description
+ORDER BY times_purchased DESC
+LIMIT 10;
+
+--Returns list of top 20 most returned items with number of times item has been returned 
+SELECT description, count(description) AS number_of_returns
+FROM online_retail
+WHERE quantity < 0
+GROUP BY description
+ORDER BY number_of_returns DESC
+LIMIT 20;
+
+--The following queries are used to analyze if orders from countries outside the UK are larger than those from the UK
+
+--Returns the average quantity of items in an order from non UK orders(excluding orders which were returned) result is 379 items
+SELECT AVG(k.order_quantity) AS avg_order_quantity
+
+FROM(SELECT invoiceno, SUM(quantity) AS order_quantity, AVG(unitprice) AS avg_unit_price
+FROM online_retail
+WHERE country <> 'United Kingdom' 
+GROUP BY invoiceno) AS k
+WHERE k.order_quantity <> 0
+;
+
+--Returns the average quantity of items in an order from UK orders(excluding orders which were returned) result is 181 items
+SELECT AVG(k.order_quantity) AS avg_order_quantity
+
+FROM(SELECT invoiceno, SUM(quantity) AS order_quantity, AVG(unitprice) AS avg_unit_price
+FROM online_retail
+WHERE country = 'United Kingdom' 
+GROUP BY invoiceno) AS k
+WHERE k.order_quantity <> 0
+;
+
+--From this analysis it is clear orders from countries outside of the UK are significantly larger in terms of quantity of items purchased then orders from within the UK
+
+
+
+--Following SQL queries return the total revenue from certain countries
+
+--Total Revenue for UK is 8,187,806 (currency not given)
+SELECT ROUND(SUM(uk.order_sale)) AS total_revenue
+FROM(
+SELECT quantity * unitprice AS order_sale
+FROM online_retail
+WHERE country = 'United Kingdom') AS uk;
+
+--Total Revenue for all countries outside of the UK is 1,559,942
+SELECT ROUND(SUM(uk.order_sale)) AS total_revenue
+FROM(
+SELECT quantity * unitprice AS order_sale
+FROM online_retail
+WHERE country <> 'United Kingdom') AS uk;
+
+--These results are interesting as we found from earlier analysis, that orders outside of the UK have a higher quantity of items on average in an order. Could maybe have to do with timeframes and if company started selling in the UK first
+
+
+--In order to start analyzing the data related to dates/timeframes we need to convert the invoicedate column to a date data type from the text data type it is. This was done through the folowing two queries:
+
+SELECT
+     column_name, data_type
+ FROM INFORMATION_SCHEMA.COLUMNS
+ WHERE table_name = 'online_retail';
+ 
+ ALTER TABLE online_retail ALTER COLUMN invoicedate TYPE date USING invoicedate::date;
+ 
+ 
+--The following query will show the timeframe for when products were sold in given country/region
+SELECT invoiceno, invoicedate
+FROM online_retail
+WHERE country = 'United Kingdom'
+ORDER BY invoicedate;
+--Started selling products in December of 2010 and has been till december 2011
+SELECT invoiceno, invoicedate
+FROM online_retail
+WHERE country <> 'United Kingdom'
+ORDER BY invoicedate;
+--This query returned the same timeframe of invoice dates therefore the hypothesis/idea that maybe the UK had higher total revenue becuase the company started selling there first can be rulled out.
+
+
+
+--Next lets vizulize sales over time (by month and quater) for certain regions or countries
+
+--The following query gets us the total revenue for the quarter specified for non UK countries
+SELECT
+	ROUND(SUM(uk.order_sale)) AS total_revenue
+FROM (
+	SELECT
+		quantity * unitprice AS order_sale,
+		EXTRACT(quarter FROM invoicedate) AS invoice_quarter,
+		EXTRACT(year FROM invoicedate) AS invoice_year
+	FROM
+		online_retail
+	WHERE
+		country <> 'United Kingdom') AS uk
+	WHERE invoice_quarter = 1 AND invoice_year = 2011;
+
+--The following query gets us the total revenue for the quarter specified for the UK
+SELECT
+	ROUND(SUM(uk.order_sale)) AS total_revenue
+FROM (
+	SELECT
+		quantity * unitprice AS order_sale,
+		EXTRACT(quarter FROM invoicedate) AS invoice_quarter,
+		EXTRACT(year FROM invoicedate) AS invoice_year
+	FROM
+		online_retail
+	WHERE
+		country = 'United Kingdom') AS uk
+	WHERE invoice_quarter = 1 AND invoice_year = 2011;
+    
+    
+
+--Analysis of biggest spending customers & of their spend over time 
+
+--Returns top 10 customers their total sprend and their country
+SELECT ww.customerid, ww.country, ROUND(SUM(ww.order_sale)) AS total_revenue
+FROM(
+SELECT quantity * unitprice AS order_sale, customerid, country
+FROM online_retail
+WHERE customerid IS NOT NULL) AS ww
+GROUP BY customerid, country
+ORDER BY total_revenue DESC
+LIMIT 10;
+
+--Taking those top 10 customers identified in previous query lets analyze their spend by month
+SELECT
+	invoice_month, ww.customerid, ww.country, ROUND(SUM(ww.order_sale)) AS revenue
+FROM (
+	SELECT
+		quantity * unitprice AS order_sale,
+		EXTRACT(month FROM invoicedate) AS invoice_month,
+		EXTRACT(year FROM invoicedate) AS invoice_year,
+		customerid,
+		country
+	FROM
+		online_retail
+	WHERE
+		customerid IN (14646, 18102, 17450, 14911, 12415, 14156, 17511, 16684, 13694, 15311)) AS ww
+	WHERE invoice_year = 2011
+	GROUP BY invoice_month, customerid, country;
+    
+
+
+--Product categories
+
+--Exploratory analysis first
+SELECT description, SUM(quantity)
+FROM online_retail
+WHERE quantity > 0 AND description IS NOT NULL AND description <> '?'
+GROUP BY description, quantity
+ORDER BY quantity DESC
+LIMIT 20;
+
+--Defined product volume categories to identify high, medium, and low volume products
+SELECT
+	p.description,
+	p.total_sold,
+	CASE WHEN p.total_sold > 1000 THEN
+		'High'
+	WHEN p.total_sold < 200 THEN
+		'Low'
+	ELSE
+		'Medium'
+	END AS product_volume
+FROM (
+	SELECT
+		description,
+		SUM(quantity) AS total_sold
+	FROM
+		online_retail
+	WHERE
+		quantity > 0
+		AND description IS NOT NULL
+		AND description <> '?'
+	GROUP BY
+		description) AS p
+GROUP BY
+	p.description,
+	p.total_sold
+ORDER BY
+	total_sold DESC;
